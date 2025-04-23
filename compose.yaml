@@ -1,0 +1,111 @@
+name: crashout
+
+services:
+  data-dl:
+    image: alpine:3.20
+    volumes:
+      - ./data-dl/entrypoint.sh:/entrypoint.sh:ro
+      - ./data-dl/scripts:/scripts:ro
+      - ./data-dl/cache:/cache
+      - data-raw:/data
+    entrypoint: ["/entrypoint.sh"]
+    restart: "no"
+  style-dl:
+    image: alpine:3.20
+    volumes:
+      - ./style-dl/entrypoint.sh:/entrypoint.sh:ro
+      - ./style-dl/scripts:/scripts:ro
+      - ./style-dl/patches:/patches:ro
+      - ./style-dl/cache:/cache
+      - data-style:/data
+    entrypoint: ["/entrypoint.sh"]
+    restart: "no"
+  geo-convert:
+    image: crashout-geo:1.0.0-py3.13-slim
+    build: ./dockerfiles/geo
+    volumes:
+      - ./geo-convert/entrypoint.py:/entrypoint.py:ro
+      - data-raw:/data/raw:ro
+      - data-geojson:/data/geojson
+    entrypoint: ["python3", "/entrypoint.py"]
+    restart: "no"
+    depends_on:
+      data-dl:
+        condition: service_completed_successfully
+  tilemaker:
+    # commit hash used because tilemaker doesn't tag versions
+    image: ghcr.io/systemed/tilemaker@sha256:649ca9748a32ea87699d75eb3c50a0c567c95fbef19f6334dcef56a7e3d9650b
+    volumes:
+      - ./tilemaker/entrypoint.sh:/entrypoint.sh:ro
+      - data-raw:/data/raw:ro
+      - data-tiles:/data/tiles
+    entrypoint: ["/entrypoint.sh"]
+    restart: "no"
+    depends_on:
+      data-dl:
+        condition: service_completed_successfully
+  tippecanoe:
+    image: crashout-tippecanoe:2.77.0
+    build: https://github.com/felt/tippecanoe.git#2.77.0
+    volumes:
+      - ./tippecanoe/entrypoint.sh:/entrypoint.sh:ro
+      - data-geojson:/data/geojson:ro
+      - data-tiles:/data/tiles
+    entrypoint: ["/entrypoint.sh"]
+    restart: "no"
+    depends_on:
+      geo-convert:
+        condition: service_completed_successfully
+  pathbuilder:
+    image: crashout-geo:1.0.0-py3.13-slim
+    build: ./dockerfiles/geo
+    volumes:
+      - ./pathbuilder/entrypoint.py:/entrypoint.py:ro
+      - ./pathbuilder/scripts:/scripts:ro
+      - data-raw:/data/raw:ro
+      - data-geojson:/data/geojson:ro
+      - data-path:/data/path
+    entrypoint: ["python3", "/entrypoint.py"]
+    restart: "no"
+    depends_on:
+      data-dl:
+        condition: service_completed_successfully
+      geo-convert:
+        condition: service_completed_successfully
+  nginx:
+    image: nginx:1.26-alpine3.20
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/config:/etc/nginx/conf.d:ro
+      - ./nginx/site:/data/www:ro
+      - data-tiles:/data/tiles:ro
+      - data-style:/data/style:ro
+    command: ["nginx", "-g", "daemon off;"]
+    restart: unless-stopped
+    depends_on:
+      style-dl:
+        condition: service_completed_successfully
+      tilemaker:
+        condition: service_completed_successfully
+      tippecanoe:
+        condition: service_completed_successfully
+  pather:
+    image: crashout-pather:1.0.0
+    build: ./dockerfiles/pather
+    ports:
+      - "10143:10143"
+    volumes:
+      - data-path:/data:ro
+    command: ["pather"]
+    restart: unless-stopped
+    depends_on:
+      pathbuilder:
+        condition: service_completed_successfully
+
+volumes:
+  data-raw: {}
+  data-style: {}
+  data-tiles: {}
+  data-geojson: {}
+  data-path: {}

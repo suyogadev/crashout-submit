@@ -1,0 +1,310 @@
+<!doctype html>
+<html>
+    <head>
+        <link
+            rel="stylesheet"
+            href="https://unpkg.com/maplibre-gl@5.3.1/dist/maplibre-gl.css"
+        />
+        <script src="https://unpkg.com/maplibre-gl@5.3.1/dist/maplibre-gl.js"></script>
+        <script src="https://unpkg.com/pmtiles@3.2.0/dist/pmtiles.js"></script>
+        <style>
+            #map {
+                width: 100vw;
+                height: 100vh;
+            }
+            #coordinates {
+                position: absolute;
+                bottom: 10px;
+                left: 10px;
+                background: rgba(255, 255, 255, 0.8);
+                padding: 10px;
+                border-radius: 4px;
+                font-family: Arial, sans-serif;
+                z-index: 1;
+            }
+            .coordinates-text {
+                margin-bottom: 10px;
+            }
+            .time-text {
+                margin-top: 6px;
+            }
+            .marker {
+                width: 20px;
+                height: 20px;
+                border-radius: 50%;
+                cursor: pointer;
+            }
+            .start-marker {
+                background-color: #4caf50;
+            }
+            .end-marker {
+                background-color: #ff0000;
+            }
+            #find-routes-btn {
+                margin-top: 10px;
+                padding: 8px 16px;
+                background-color: #4caf50;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 14px;
+            }
+            #find-routes-btn:hover {
+                background-color: #45a049;
+            }
+            #toggle-crashes-btn {
+                padding: 8px 16px;
+                background-color: #af4c85;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 14px;
+                float: right;
+            }
+            #toggle-crashes-btn:hover {
+                background-color: #831548;
+            }
+            #algorithm-select,
+            #route-type-select {
+                margin-top: 10px;
+                padding: 8px;
+                border-radius: 4px;
+                border: 1px solid #ccc;
+                font-size: 14px;
+                margin-right: 8px;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="map"></div>
+        <div id="coordinates">
+            <div class="coordinates-text">
+                <div id="start-coords">Start: Not selected</div>
+                <div id="end-coords">End: Not selected</div>
+            </div>
+            <select id="algorithm-select">
+                <option value="dijkstra">Dijkstra</option>
+                <option value="astar">A*</option>
+            </select>
+            <select id="route-type-select">
+                <option value="fastest">Fastest</option>
+                <option value="safest">Safest</option>
+            </select>
+            <button id="find-routes-btn">Find Routes</button>
+            <div class="time-text">
+                Time: <span id="time">N/A </span><span id="time-unit">ms</span>
+                <button id="toggle-crashes-btn">Toggle Crashes</button>
+            </div>
+        </div>
+        <script>
+            const protocol = new pmtiles.Protocol();
+            maplibregl.addProtocol("pmtiles", protocol.tile);
+
+            const map = new maplibregl.Map({
+                container: "map",
+            });
+
+            map.setStyle("/style/style.json", {
+                transformStyle: (previousStyle, nextStyle) => ({
+                    ...nextStyle,
+                    // make relative sprite path like "../sprite" absolute
+                    sprite: decodeURI(
+                        new URL(nextStyle.sprite, window.location.origin).href,
+                    ),
+                    // make relative glyphs path like "../fonts/{fontstack}/{range}.pbf" absolute
+                    glyphs: decodeURI(
+                        new URL(nextStyle.glyphs, window.location.origin).href,
+                    ),
+                }),
+            });
+
+            // Function to update the route source data
+            const updateRouteData = (geometry) => {
+                if (!map.getSource("route")) return;
+
+                map.getSource("route").setData({
+                    type: "FeatureCollection",
+                    features: [
+                        { type: "Feature", geometry: geometry, properties: {} },
+                    ],
+                });
+
+                // Calculate bounds from coordinates to zoom to the route
+                const coordinates = geometry["coordinates"];
+                const bounds = coordinates.reduce(
+                    (bounds, coord) => bounds.extend(coord),
+                    new maplibregl.LngLatBounds(coordinates[0], coordinates[0]),
+                );
+
+                // Fit the map to the route bounds with some padding
+                map.fitBounds(bounds, {
+                    padding: 50,
+                });
+            };
+
+            // we have useState at home
+            let startPoint = null;
+            let endPoint = null;
+            let startMarker = null;
+            let endMarker = null;
+
+            // display a marker on the map
+            const createMarkerElement = (isStart) => {
+                const el = document.createElement("div");
+                // el.className = `marker ${isStart ? 'start-marker' : 'end-marker'}`;
+                el.color = isStart ? "#4CAF50" : "#ff0000";
+                return el;
+            };
+
+            // display the coordinates (lat/lon) in bottom left
+            const updateCoordinatesDisplay = () => {
+                const startCoordsDiv = document.getElementById("start-coords");
+                const endCoordsDiv = document.getElementById("end-coords");
+
+                startCoordsDiv.textContent = `Start: ${startPoint ? `${startPoint.lat.toFixed(6)}, ${startPoint.lng.toFixed(6)}` : "Not selected"}`;
+                endCoordsDiv.textContent = `End: ${endPoint ? `${endPoint.lat.toFixed(6)}, ${endPoint.lng.toFixed(6)}` : "Not selected"}`;
+            };
+
+            // move a marker from one place to another
+            const updateMarker = (point, isStart) => {
+                if (isStart) {
+                    if (startMarker) {
+                        startMarker.remove();
+                        startMarker = null;
+                    }
+                    startMarker = new maplibregl.Marker(
+                        createMarkerElement(true),
+                    )
+                        .setLngLat([point.lng, point.lat])
+                        .addTo(map);
+                } else {
+                    if (endMarker) {
+                        endMarker.remove();
+                        endMarker = null;
+                    }
+                    endMarker = new maplibregl.Marker(
+                        createMarkerElement(false),
+                    )
+                        .setLngLat([point.lng, point.lat])
+                        .addTo(map);
+                }
+            };
+
+            // click event listener for setting start/end points
+            map.on("click", (e) => {
+                const coordinates = e.lngLat;
+
+                if (!startPoint) {
+                    startPoint = coordinates;
+                    updateMarker(coordinates, true);
+                } else if (!endPoint) {
+                    endPoint = coordinates;
+                    updateMarker(coordinates, false);
+                } else {
+                    // reset both points if both are already set
+                    startPoint = coordinates;
+                    endPoint = null;
+                    if (endMarker) {
+                        endMarker.remove();
+                        endMarker = null;
+                    }
+                    updateMarker(coordinates, true);
+                }
+
+                updateCoordinatesDisplay();
+            });
+
+            // event listener for the find routes button
+            document
+                .getElementById("find-routes-btn")
+                .addEventListener("click", async () => {
+                    let algorithm =
+                        document.getElementById("algorithm-select").value;
+                    let routeType =
+                        document.getElementById("route-type-select").value;
+
+                    console.log("Selected algorithm:", algorithm);
+                    console.log("Selected route type:", routeType);
+
+                    if (algorithm == "astar") algorithm = 1;
+                    else algorithm = 0;
+
+                    if (routeType == "fastest") routeType = 1;
+                    else routeType = 0;
+
+                    // start and end points must be set
+                    if (!startPoint || !endPoint) {
+                        alert("Please select both start and end points");
+                        return;
+                    }
+
+                    const payload = {
+                        start_point: [startPoint.lng, startPoint.lat],
+                        end_point: [endPoint.lng, endPoint.lat],
+                        algorithm: algorithm,
+                        cost: routeType,
+                    };
+
+                    const response = await fetch("/api/", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify(payload),
+                    });
+
+                    if (!response.ok) {
+                        alert(`HTTP error from server: ${response.status}`);
+                    }
+
+                    let r_json;
+                    try {
+                        r_json = await response.json();
+                    } catch (e) {
+                        alert("Response was invalid JSON");
+                    }
+
+                    if (r_json["success"]) updateRouteData(r_json["geom"]);
+                    else {
+                        alert(
+                            "No route was found (make sure your points aren't too close to the edge of the map?)",
+                        );
+                        updateRouteData({
+                            type: "LineString",
+                            coordinates: [],
+                        });
+                    }
+
+                    const time = r_json["time"];
+                    if (time < 75000) {
+                        // values like 75ms look acceptable
+                        document.querySelector("#time").innerText = time / 1000;
+                        document.querySelector("#time-unit").innerText = "ms";
+                    } else {
+                        document.querySelector("#time").innerText =
+                            Math.trunc(time / 1000) / 1000;
+                        document.querySelector("#time-unit").innerText = "s";
+                    }
+                });
+
+            // event listener for the toggle-crashes button
+            document
+                .getElementById("toggle-crashes-btn")
+                .addEventListener("click", () => {
+                    const layerId = "crashes";
+                    const visibility = map.getLayoutProperty(
+                        layerId,
+                        "visibility",
+                    );
+
+                    if (visibility != "none") {
+                        map.setLayoutProperty(layerId, "visibility", "none");
+                    } else {
+                        map.setLayoutProperty(layerId, "visibility", "visible");
+                    }
+                });
+        </script>
+    </body>
+</html>
