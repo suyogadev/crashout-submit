@@ -12,7 +12,7 @@ def add_crashes(INPUT_GEOJSON, segments):
 
     for segment in segments:
         projected_segment = transform(projection.transform, segment[0])
-        buffer = projected_segment.buffer(120)
+        buffer = projected_segment.buffer(1200)
         segment[6] = len(crashes_index.query(buffer, predicate='intersects'))
         segment.pop(0)
 
