@@ -72,6 +72,18 @@ services:
         condition: service_completed_successfully
       geo-convert:
         condition: service_completed_successfully
+  pather:
+    image: crashout-pather:1.0.0
+    build: ./dockerfiles/pather
+    ports:
+      - "10143:10143"
+    volumes:
+      - data-path:/data:ro
+    command: ["pather"]
+    restart: unless-stopped
+    depends_on:
+      pathbuilder:
+        condition: service_completed_successfully
   nginx:
     image: nginx:1.26-alpine3.20
     ports:
@@ -90,18 +102,8 @@ services:
         condition: service_completed_successfully
       tippecanoe:
         condition: service_completed_successfully
-  pather:
-    image: crashout-pather:1.0.0
-    build: ./dockerfiles/pather
-    ports:
-      - "10143:10143"
-    volumes:
-      - data-path:/data:ro
-    command: ["pather"]
-    restart: unless-stopped
-    depends_on:
-      pathbuilder:
-        condition: service_completed_successfully
+      pather:
+        condition: service_started
 
 volumes:
   data-raw: {}
