@@ -91,6 +91,7 @@
             <select id="route-type-select">
                 <option value="fastest">Fastest</option>
                 <option value="safest">Safest</option>
+                <option value="cool">Least safe</option>
             </select>
             <button id="find-routes-btn">Find Routes</button>
             <div class="time-text">
@@ -232,6 +233,7 @@
                     else algorithm = 0;
 
                     if (routeType == "fastest") routeType = 1;
+                    else if (routeType == "cool") routeType = 2;
                     else routeType = 0;
 
                     // start and end points must be set

@@ -67,6 +67,16 @@ nlohmann::json GraphHelper::calculatePath(const nlohmann::json& j) {
                     return haversine(start.y, start.x, end.y, end.x) / 70;
                 };
                 break;
+            case 2:
+                cost_fn = [this](int idx) {
+                    Edge& edge = graph.edges[idx];
+                    if (edge.pointLike) return 0.0;
+                    return 1 / edge.crashes;
+                };
+                heuristic = [this](int idx1, int idx2) {
+                    return 0;
+                };
+                break;
         }
 
         int start_idx = find_nearest_node(sx, sy);
