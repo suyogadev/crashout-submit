@@ -71,7 +71,7 @@ nlohmann::json GraphHelper::calculatePath(const nlohmann::json& j) {
                 cost_fn = [this](int idx) {
                     Edge& edge = graph.edges[idx];
                     if (edge.pointLike) return 0.0;
-                    return 1 / edge.crashes;
+                    return 1.0 / edge.crashes;
                 };
                 heuristic = [this](int idx1, int idx2) {
                     return 0;
