@@ -36,7 +36,7 @@ struct Edge {
     int speed;
     int crashes;
 
-    Edge() : from(-1), to(-1), length(0), pointLike(true), crashes(0), speed(0) {};
+    Edge() : from(-1), to(-1), length(0), pointLike(true), speed(0), crashes(0) {};
 
     MSGPACK_DEFINE(from, to, length, pointLike, speed, crashes);
 };
